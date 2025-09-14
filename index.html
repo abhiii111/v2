@@ -211,7 +211,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global variables provided by the environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -268,7 +268,6 @@
 
         let dailyDataSubscription = null;
         let goalsDataSubscription = null;
-        let historyDataSubscription = null;
 
         // Helper functions
         const formatDate = (date) => date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -319,11 +318,14 @@
         // Firebase Initialization and Authentication
         const initFirebase = async () => {
             try {
-                // Check if firebase config is provided and is a valid JSON string
-                if (typeof __firebase_config === 'undefined' || __firebase_config === '{}') {
-                    throw new Error("Firebase configuration is missing or invalid. Please check the environment variables.");
+                if (typeof __firebase_config === 'undefined' || !__firebase_config.trim() || __firebase_config === '{}') {
+                    throw new Error("Firebase config is missing or empty. Cannot initialize app.");
                 }
                 const firebaseConfig = JSON.parse(__firebase_config);
+                if (Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Firebase config is an empty object. Cannot initialize app.");
+                }
+
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
@@ -343,13 +345,13 @@
                                 await signInAnonymously(auth);
                             }
                         } catch (error) {
-                            console.error("Firebase auth error:", error);
+                            console.error("Firebase authentication failed:", error);
                             showMessage("Authentication failed. Please check the console for details.");
                         }
                     }
                 });
             } catch (error) {
-                console.error("Firebase initialization failed:", error);
+                console.error("Firebase initialization error:", error);
                 showMessage("Failed to initialize the app. Check the console for details.");
             }
         };
@@ -479,18 +481,31 @@
 
         const loadHistory = async () => {
             if (!userId) return;
-            if (historyDataSubscription) historyDataSubscription();
             const collectionPath = `/artifacts/${appId}/users/${userId}/daily_records`;
-            const q = query(collection(db, collectionPath), orderBy("timestamp", "desc"));
-            historyDataSubscription = onSnapshot(q, (querySnapshot) => {
+            const q = collection(db, collectionPath);
+            
+            try {
+                const querySnapshot = await getDocs(q);
+                const historyData = [];
+                querySnapshot.forEach((doc) => {
+                    historyData.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Sort the data by timestamp in descending order in JavaScript
+                historyData.sort((a, b) => {
+                    if (a.timestamp && b.timestamp) {
+                        return b.timestamp.toMillis() - a.timestamp.toMillis();
+                    }
+                    return 0;
+                });
+
                 historyList.innerHTML = '';
-                if (querySnapshot.empty) {
+                if (historyData.length === 0) {
                     noHistoryMessage.classList.remove('hidden');
                 } else {
                     noHistoryMessage.classList.add('hidden');
-                    querySnapshot.forEach((doc) => {
-                        const data = doc.data();
-                        const dateStr = doc.id;
+                    historyData.forEach((data) => {
+                        const dateStr = data.id;
                         const historyItem = document.createElement('div');
                         historyItem.className = 'p-4 bg-white rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow';
                         historyItem.innerHTML = `
@@ -510,9 +525,9 @@
                         });
                     });
                 }
-            }, (error) => {
+            } catch (error) {
                 console.error("Error loading history:", error);
-            });
+            }
         };
 
         // UI Update Functions
@@ -534,12 +549,10 @@
         const updateGoalsUI = (goals) => {
             calorieGoalInput.value = goals.calorieGoal || '';
             waterGoalInput.value = goals.waterGoal || '';
-            // Re-render UI with new goals
             loadDailyData(currentDate);
         };
 
         const renderTodaysLog = (meals, workouts) => {
-            // Render meals
             todayLogList.innerHTML = '';
             if (meals.length === 0) {
                 noMealsMessage.classList.remove('hidden');
@@ -557,7 +570,6 @@
                 });
             }
 
-            // Render workouts
             todayWorkoutsList.innerHTML = '';
             if (workouts.length === 0) {
                 noWorkoutsMessage.classList.remove('hidden');
@@ -594,7 +606,8 @@
 
             nextDayBtn.addEventListener('click', () => {
                 const today = new Date();
-                if (currentDate.toISOString().split('T')[0] < today.toISOString().split('T')[0]) {
+                today.setHours(0, 0, 0, 0);
+                if (currentDate.getTime() < today.getTime()) {
                     currentDate.setDate(currentDate.getDate() + 1);
                     updateDateDisplay();
                     loadDailyData(currentDate);
@@ -638,7 +651,6 @@
             });
         };
 
-        // Start the application
         window.onload = initFirebase;
     </script>
 </body>
