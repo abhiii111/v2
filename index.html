@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FitTrack - Fitness Dashboard</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/9.19.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.19.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.19.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        /* Custom scrollbar for better dark mode aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a202c; /* dark:bg-gray-800 */
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568; /* dark:bg-gray-600 */
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #718096; /* dark:bg-gray-500 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900">
+
+    <div id="app-root">
+        <div id="loader" class="flex items-center justify-center h-screen bg-gray-900 text-white">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-dumbbell animate-spin"><path d="m6.5 6.5 11 11"/><path d="m21 21-1-1"/><path d="m3 3 1 1"/><path d="m18 22 4-4"/><path d="m6 2 4 4"/><path d="m3 10-1 1"/><path d="m21 14 1-1"/><path d="M12 12 2 22"/><path d="m12 12 10-10"/></svg>
+        </div>
+        
+        </div>
+    
+    <div id="modal-container" class="fixed inset-0 z-50 hidden"></div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // --- START: 🔥 FIREBASE CONFIGURATION 🔥 ---
+        // IMPORTANT: Replace these placeholder values with your actual Firebase project configuration.
+        const __app_id = 'YOUR_APP_ID_HERE'; // e.g., 'fitness-tracker-1234'
+        const __firebase_config = `{
+            "apiKey": "YOUR_API_KEY",
+            "authDomain": "YOUR_AUTH_DOMAIN",
+            "projectId": "YOUR_PROJECT_ID",
+            "storageBucket": "YOUR_STORAGE_BUCKET",
+            "messagingSenderId": "YOUR_MESSAGING_SENDER_ID",
+            "appId": "YOUR_APP_ID"
+        }`;
+        const __initial_auth_token = undefined;
+        // --- END: 🔥 FIREBASE CONFIGURATION 🔥 ---
+
+
+        // --- Firebase Initialization ---
+        let app, auth, db;
+        try {
+            const firebaseConfig = JSON.parse(__firebase_config);
+            if (firebaseConfig && Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey !== "YOUR_API_KEY") {
+                app = firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth(app);
+                db = firebase.firestore(app);
+            } else {
+                console.warn("Firebase config is empty or contains placeholder values. App will not connect to Firebase.");
+            }
+        } catch (e) {
+            console.error("Error initializing Firebase:", e);
+        }
+
+        // --- State Management ---
+        const state = {
+            userId: null,
+            isAuthReady: false,
+            profile: {
+                name: 'User', age: 30, gender: 'male', height: 175,
+                weight: 70, activityLevel: 1.55, goal: 'maintain',
+            },
+            workouts: [],
+            nutrition: [],
+            progress: [],
+            water: [],
+            activeTab: 'dashboard',
+            theme: 'dark'
+        };
+
+        // Chart instances need to be stored to be destroyed on re-render
+        let progressChartInstance = null;
+        let weightHistoryChartInstance = null;
+
+        // --- DOM References ---
+        const appRoot = document.getElementById('app-root');
+        const modalContainer = document.getElementById('modal-container');
+        const loader = document.getElementById('loader');
+        
+        // --- Core Application Logic ---
+        
+        // Main function to start the app
+        function main() {
+            if (!auth) {
+                renderApp();
+                return;
+            };
+
+            auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    state.userId = user.uid;
+                    state.isAuthReady = true;
+                    setupFirestoreListeners();
+                } else {
+                    try {
+                        if (__initial_auth_token) {
+                            await auth.signInWithCustomToken(__initial_auth_token);
+                        } else {
+                            await auth.signInAnonymously();
+                        }
+                    } catch (error) {
+                        console.error("Error signing in:", error);
+                        state.isAuthReady = true; 
+                        renderApp();
+                    }
+                }
+            });
+        }
+
+        function setupFirestoreListeners() {
+            if (!state.isAuthReady || !state.userId || !db) return;
+            
+            const basePath = `artifacts/${__app_id}/users/${state.userId}`;
+            
+            // Profile listener
+            db.collection(basePath).doc('profile').onSnapshot(doc => {
+                if (doc.exists) {
+                    state.profile = { ...state.profile, ...doc.data() };
+                }
+                renderApp(); // Re-render on profile change
+            }, err => console.error("Error fetching profile:", err));
+            
+            // Collection listeners
+            const collections = ['workouts', 'nutrition', 'progress', 'water'];
+            collections.forEach(key => {
+                db.collection(basePath).doc(key).collection(key).onSnapshot(snapshot => {
+                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    if (key === 'progress') {
+                        state[key] = data.sort((a, b) => new Date(a.date) - new Date(b.date));
+                    } else {
+                        state[key] = data;
+                    }
+                    renderApp(); // Re-render on data change
+                }, err => console.error(`Error fetching ${key}:`, err));
+            });
+        }
+        
+        // --- Calculation Functions (Replicating useMemo) ---
+        function getCalculatedMetrics() {
+            const { age, gender, height, weight, activityLevel, goal } = state.profile;
+            if (!age || !height || !weight) return { tdee: 2000, macros: { protein: 150, carbs: 200, fat: 67 } };
+            
+            const bmr = gender === 'male'
+                ? 10 * weight + 6.25 * height - 5 * age + 5
+                : 10 * weight + 6.25 * height - 5 * age - 161;
+
+            let calculatedTdee = bmr * activityLevel;
+
+            if (goal === 'lose') calculatedTdee -= 500;
+            if (goal === 'gain') calculatedTdee += 500;
+            
+            const protein = Math.round((calculatedTdee * 0.3) / 4);
+            const carbs = Math.round((calculatedTdee * 0.4) / 4);
+            const fat = Math.round((calculatedTdee * 0.3) / 9);
+
+            return { tdee: Math.round(calculatedTdee), macros: { protein, carbs, fat } };
+        }
+        
+        function getTodaysData() {
+            const today = new Date().toISOString().split('T')[0];
+            const todaysNutrition = state.nutrition.filter(item => item.date === today);
+            const todaysWorkouts = state.workouts.filter(item => item.date === today);
+            const todaysWater = state.water.find(item => item.date === today)?.amount || 0;
+            const waterData = state.water.find(item => item.date === today);
+
+            const nutritionTotals = todaysNutrition.reduce((acc, item) => ({
+                calories: acc.calories + (item.calories || 0), protein: acc.protein + (item.protein || 0),
+                carbs: acc.carbs + (item.carbs || 0), fat: acc.fat + (item.fat || 0),
+            }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+            const caloriesBurnedToday = todaysWorkouts.reduce((acc, item) => acc + (item.caloriesBurned || 0), 0);
+            
+            return { today, todaysNutrition, todaysWorkouts, todaysWater, waterData, nutritionTotals, caloriesBurnedToday };
+        }
+
+        // --- Database Handlers ---
+        async function handleSave(collectionName, data, id = null) {
+            if (!state.userId || !db) return console.error("Not authenticated or DB not initialized.");
+            
+            try {
+                const basePath = `artifacts/${__app_id}/users/${state.userId}`;
+                const collectionPath = db.collection(basePath).doc(collectionName).collection(collectionName);
+                if (id) {
+                    await collectionPath.doc(id).set(data, { merge: true });
+                } else if (collectionName === 'profile') {
+                    // Special handling for the single profile document
+                     await db.collection(basePath).doc('profile').set(data, { merge: true });
+                }
+                else {
+                    await collectionPath.add(data);
+                }
+                closeModal();
+            } catch (error) {
+                console.error("Error saving document: ", error);
+            }
+        }
+        
+        async function handleDelete(collectionName, id) {
+            if (!state.userId || !db) return;
+            if (window.confirm('Are you sure you want to delete this item?')) {
+                try {
+                    const basePath = `artifacts/${__app_id}/users/${state.userId}`;
+                    await db.collection(basePath).doc(collectionName).collection(collectionName).doc(id).delete();
+                } catch (error) {
+                    console.error("Error deleting document: ", error);
+                }
+            }
+        }
+
+        // --- UI Rendering ---
+
+        function renderApp() {
+            loader.style.display = 'none';
+            const { tdee, macros } = getCalculatedMetrics();
+            const { nutritionTotals, caloriesBurnedToday, todaysWater, today } = getTodaysData();
+            const tabs = ['dashboard', 'workouts', 'nutrition', 'progress', 'settings'];
+
+            appRoot.innerHTML = `
+                <div class="flex flex-col md:flex-row min-h-screen text-gray-800 dark:text-gray-200">
+                    <aside class="w-full md:w-64 bg-white dark:bg-gray-800 p-4 md:p-6 shadow-lg md:border-r border-gray-200 dark:border-gray-700">
+                        <div class="flex items-center mb-8">
+                            <i data-lucide="dumbbell" class="h-8 w-8 text-blue-500"></i>
+                            <h1 class="text-2xl font-bold ml-3">FitTrack</h1>
+                        </div>
+                        <nav class="flex md:flex-col md:space-y-2 justify-around md:justify-start">
+                            ${tabs.map(tab => `
+                                <button data-tab="${tab}" class="nav-button flex items-center p-3 rounded-lg w-full text-left transition-colors duration-200 ${state.activeTab === tab ? 'bg-blue-500 text-white shadow-md' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}">
+                                    <i data-lucide="${tab === 'dashboard' ? 'trending-up' : tab === 'workouts' ? 'dumbbell' : tab === 'nutrition' ? 'utensils' : tab === 'progress' ? 'line-chart' : 'user'}" class="h-5 w-5 mr-3"></i>
+                                    <span class="capitalize hidden md:block">${tab}</span>
+                                </button>
+                            `).join('')}
+                        </nav>
+                        <div class="mt-auto pt-6 hidden md:block">
+                            <p class="text-xs text-gray-500 dark:text-gray-400">User ID:</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 break-words">${state.userId || 'Not signed in'}</p>
+                        </div>
+                    </aside>
+
+                    <main class="flex-1 p-4 md:p-8 overflow-y-auto">
+                         <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-3xl font-bold capitalize">${state.activeTab}</h2>
+                            <button id="theme-toggle" class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                                ${state.theme === 'dark' ? '<i data-lucide="sun"></i>' : '<i data-lucide="moon"></i>'}
+                            </button>
+                        </div>
+                        <div id="main-content">
+                            </div>
+                    </main>
+                </div>
+            `;
+            
+            const mainContent = document.getElementById('main-content');
+            if (state.activeTab === 'dashboard') mainContent.innerHTML = renderDashboardView();
+            else if (state.activeTab === 'workouts') mainContent.innerHTML = renderWorkoutView();
+            else if (state.activeTab === 'nutrition') mainContent.innerHTML = renderNutritionView();
+            else if (state.activeTab === 'progress') mainContent.innerHTML = renderProgressView();
+            else if (state.activeTab === 'settings') mainContent.innerHTML = renderSettingsView();
+
+            // Render icons and charts after HTML is in the DOM
+            lucide.createIcons();
+            if (state.activeTab === 'dashboard') createDashboardCharts();
+            if (state.activeTab === 'progress') createProgressCharts();
+            
+            // Re-attach event listeners
+            attachEventListeners();
+        }
+
+        // --- View Rendering Functions ---
+        
+        function renderDashboardView() {
+            const { tdee } = getCalculatedMetrics();
+            const { nutritionTotals, caloriesBurnedToday, todaysWater } = getTodaysData();
+            const calorieProgress = (nutritionTotals.calories / (tdee || 1)) * 100;
+            const waterGoal = 8;
+            const latestWeight = state.progress.length > 0 ? state.progress[state.progress.length-1].weight : 'N/A';
+            
+            return `
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+                        <div class="flex items-center mb-4"><i data-lucide="flame" class="h-6 w-6 mr-3 text-red-500"></i><h3 class="font-bold text-lg">Calories</h3></div>
+                        <div class="relative h-40">
+                            <svg class="w-full h-full" viewBox="0 0 36 36">
+                                <path class="text-gray-200 dark:text-gray-700" stroke-width="3" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                                <path class="text-red-500" stroke-width="3" fill="none" stroke-dasharray="${calorieProgress}, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            </svg>
+                            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+                                <span class="text-2xl font-bold">${nutritionTotals.calories}</span>
+                                <span class="text-sm">/ ${tdee} kcal</span>
+                            </div>
+                        </div>
+                        <div class="text-center mt-2 text-sm text-gray-500 dark:text-gray-400">${caloriesBurnedToday} kcal burned</div>
+                    </div>
+
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+                         <div class="flex items-center mb-4"><i data-lucide="droplet" class="h-6 w-6 mr-3 text-blue-500"></i><h3 class="font-bold text-lg">Water Intake</h3></div>
+                         <div class="flex items-center justify-center h-40 flex-col">
+                            <span class="text-4xl font-bold">${todaysWater} <span class="text-xl">/ ${waterGoal}</span></span>
+                            <span class="text-lg">glasses</span>
+                        </div>
+                        <button data-modal="water" class="modal-trigger w-full mt-2 bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors">Add Water</button>
+                    </div>
+                    
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg lg:col-span-2 xl:col-span-1">
+                        <div class="flex items-center mb-4"><i data-lucide="target" class="h-6 w-6 mr-3 text-green-500"></i><h3 class="font-bold text-lg">Macronutrients</h3></div>
+                         <div class="space-y-4 pt-4">
+                             ${Object.entries({ protein: 'Protein', carbs: 'Carbs', fat: 'Fat' }).map(([key, name]) => {
+                                const { macros } = getCalculatedMetrics();
+                                const current = nutritionTotals[key];
+                                const goal = macros[key];
+                                const percentage = Math.min(100, (current / (goal || 1)) * 100);
+                                return `
+                                <div>
+                                    <div class="flex justify-between mb-1 text-sm">
+                                        <span>${name}</span>
+                                        <span>${current}g / ${goal}g</span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                                        <div class="bg-green-500 h-2.5 rounded-full" style="width: ${percentage}%"></div>
+                                    </div>
+                                </div>
+                                `}).join('')}
+                         </div>
+                    </div>
+                    
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg md:col-span-2 lg:col-span-3 xl:col-span-3">
+                         <div class="flex items-center mb-4"><i data-lucide="trending-up" class="h-6 w-6 mr-3 text-purple-500"></i><h3 class="font-bold text-lg">Weight Progress</h3></div>
+                         <p class="text-center mb-2">Current Weight: <span class="font-bold">${latestWeight} kg</span></p>
+                        <div class="h-56"><canvas id="progressChart"></canvas></div>
+                    </div>
+                    
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg md:col-span-2 lg:col-span-3 xl:col-span-4">
+                        <h3 class="font-bold mb-2">Quick Add</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <button data-modal="workout" class="modal-trigger p-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center flex-col gap-2"><i data-lucide="dumbbell"></i> Add Workout</button>
+                            <button data-modal="meal" class="modal-trigger p-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center flex-col gap-2"><i data-lucide="utensils"></i> Add Meal</button>
+                            <button data-modal="progress" class="modal-trigger p-4 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors flex items-center justify-center flex-col gap-2"><i data-lucide="trending-up"></i> Log Progress</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderWorkoutView() {
+            return `
+                 <div>
+                    <button data-modal="workout" class="modal-trigger flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-600 transition-colors shadow-md">
+                        <i data-lucide="plus"></i>Add Workout
+                    </button>
+                    <div class="mt-6 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+                        <h3 class="font-bold text-xl mb-4">Workout History</h3>
+                        <div class="space-y-4">
+                            ${state.workouts.length > 0 ? [...state.workouts].reverse().map(w => `
+                                <div class="p-4 border dark:border-gray-700 rounded-lg flex justify-between items-center">
+                                    <div>
+                                        <p class="font-bold">${w.name} <span class="font-normal text-sm text-gray-500 dark:text-gray-400">(${w.type})</span></p>
+                                        <p class="text-sm text-gray-600 dark:text-gray-300">
+                                            ${w.type === 'strength' ? `${w.sets} sets, ${w.reps} reps, ${w.weight} kg` : `${w.duration} mins, ${w.distance || 'N/A'} km`}
+                                        </p>
+                                        <p class="text-xs text-gray-400">${w.date}</p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-red-500 font-semibold">${w.caloriesBurned} kcal</span>
+                                        <button class="delete-btn p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900 rounded-full" data-collection="workouts" data-id="${w.id}"><i data-lucide="trash-2" class="h-5 w-5"></i></button>
+                                    </div>
+                                </div>
+                            `).join('') : '<p>No workouts logged yet.</p>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderNutritionView() {
+             const { today } = getTodaysData();
+             const mealTypes = ['breakfast', 'lunch', 'dinner', 'snacks'];
+             const groupedNutrition = mealTypes.map(mealType => {
+                 const items = state.nutrition.filter(item => item.mealType === mealType && item.date === today);
+                 return {
+                     mealType, items,
+                     totalCalories: items.reduce((sum, item) => sum + item.calories, 0),
+                 }
+             });
+
+            return `
+                 <div>
+                    <button data-modal="meal" class="modal-trigger flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-600 transition-colors shadow-md">
+                        <i data-lucide="plus"></i>Add Meal
+                    </button>
+                    <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                       ${groupedNutrition.map(({ mealType, items, totalCalories }) => `
+                            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+                                <h3 class="font-bold text-xl mb-4 capitalize flex justify-between items-center">${mealType} <span>${totalCalories} kcal</span></h3>
+                                <div class="space-y-3">
+                                    ${items.length > 0 ? items.map(n => `
+                                        <div class="p-3 border dark:border-gray-700 rounded-lg flex justify-between items-center text-sm">
+                                            <div>
+                                                <p class="font-bold">${n.name}</p>
+                                                <p class="text-gray-500 dark:text-gray-400">P:${n.protein || 0}g C:${n.carbs || 0}g F:${n.fat || 0}g</p>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-semibold text-green-500">${n.calories} kcal</span>
+                                                <button class="delete-btn p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900 rounded-full" data-collection="nutrition" data-id="${n.id}"><i data-lucide="trash-2" class="h-5 w-5"></i></button>
+                                            </div>
+                                        </div>
+                                    `).join('') : `<p class="text-sm text-gray-400">No items for ${mealType} today.</p>`}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderProgressView() {
+            return `
+                <div>
+                    <button data-modal="progress" class="modal-trigger flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-600 transition-colors shadow-md">
+                        <i data-lucide="plus"></i>Log Progress
+                    </button>
+                     <div class="mt-6 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+                        <h3 class="font-bold text-xl mb-4">Weight History Chart</h3>
+                        <div class="h-96">
+                           <canvas id="weightHistoryChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="mt-6 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+                         <h3 class="font-bold text-xl mb-4">Progress Log</h3>
+                         <div class="space-y-3">
+                            ${state.progress.length > 0 ? [...state.progress].reverse().map(p => `
+                                 <div class="p-4 border dark:border-gray-700 rounded-lg flex justify-between items-center">
+                                    <div>
+                                       <p class="font-bold">${p.date}</p>
+                                       <p class="text-sm text-gray-600 dark:text-gray-300">
+                                           Weight: ${p.weight} kg ${p.bodyFat ? `| Body Fat: ${p.bodyFat}%` : ''}
+                                       </p>
+                                    </div>
+                                    <button class="delete-btn p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900 rounded-full" data-collection="progress" data-id="${p.id}"><i data-lucide="trash-2" class="h-5 w-5"></i></button>
+                                 </div>
+                            `).join('') : '<p>No progress logged yet.</p>'}
+                         </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSettingsView() {
+            const { name, age, gender, height, weight, activityLevel, goal } = state.profile;
+            return `
+                 <div class="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-lg max-w-2xl mx-auto">
+                    <form id="settings-form" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            ${renderInputField({ label: 'Name', name: 'name', value: name })}
+                            ${renderInputField({ label: 'Age', name: 'age', type: 'number', value: age })}
+                            ${renderSelectField({ label: 'Gender', name: 'gender', value: gender, options: [
+                                {value: 'male', label: 'Male'}, {value: 'female', label: 'Female'}
+                            ]})}
+                            ${renderInputField({ label: 'Height (cm)', name: 'height', type: 'number', value: height })}
+                            ${renderInputField({ label: 'Weight (kg)', name: 'weight', type: 'number', value: weight })}
+                            ${renderSelectField({ label: 'Activity Level', name: 'activityLevel', value: activityLevel, options: [
+                                {value: 1.2, label: 'Sedentary'}, {value: 1.375, label: 'Lightly Active'}, 
+                                {value: 1.55, label: 'Moderately Active'}, {value: 1.725, label: 'Very Active'}, 
+                                {value: 1.9, label: 'Extra Active'}
+                            ]})}
+                        </div>
+                        <div>
+                             ${renderSelectField({ label: 'Primary Goal', name: 'goal', value: goal, options: [
+                                {value: 'lose', label: 'Weight Loss'}, {value: 'maintain', label: 'Maintain Weight'}, 
+                                {value: 'gain', label: 'Muscle Gain'}
+                            ]})}
+                        </div>
+                        <button type="submit" class="w-full bg-blue-500 text-white p-3 rounded-lg font-semibold hover:bg-blue-600 transition-colors">Save Settings</button>
+                    </form>
+                </div>
+            `;
+        }
+
+        // --- UI Component Helpers ---
+        function renderInputField({ label, name, type = 'text', value = '', placeholder = '' }) {
+            return `
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">${label}</label>
+                    <input name="${name}" type="${type}" value="${value}" placeholder="${placeholder}"
+                           class="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+            `;
+        }
+        function renderSelectField({ label, name, value, options }) {
+            return `
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">${label}</label>
+                    <select name="${name}" class="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                        ${options.map(opt => `<option value="${opt.value}" ${opt.value == value ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+        }
+
+        // --- Modal Rendering ---
+        function renderModal(type) {
+             const modalContent = {
+                'workout': renderAddWorkoutModal,
+                'meal': renderAddMealModal,
+                'progress': renderAddProgressModal,
+                'water': renderAddWaterModal
+            };
+            
+            if (modalContent[type]) {
+                modalContainer.innerHTML = modalContent[type]();
+                modalContainer.style.display = 'flex';
+                lucide.createIcons();
+                attachModalEventListeners();
+            }
+        }
+
+        function closeModal() {
+            modalContainer.innerHTML = '';
+            modalContainer.style.display = 'none';
+        }
+
+        function renderModalWrapper({title, content, formId, formClass = "space-y-4"}) {
+             return `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md">
+                        <div class="flex justify-between items-center p-4 border-b dark:border-gray-700">
+                            <h3 class="text-xl font-bold">${title}</h3>
+                            <button class="close-modal-btn p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full"><i data-lucide="x" class="h-5 w-5"></i></button>
+                        </div>
+                        <div class="p-6">
+                            <form id="${formId}" class="${formClass}">${content}</form>
+                        </div>
+                    </div>
+                </div>
+             `;
+        }
+
+        function renderAddWorkoutModal() {
+            const today = new Date().toISOString().split('T')[0];
+            const content = `
+                ${renderSelectField({label: "Type", name: "type", value: "strength", options: [{value: "strength", label: "Strength"}, {value: "cardio", label: "Cardio"}]})}
+                ${renderInputField({label: "Name", name: "name", placeholder: "e.g., Bench Press", required: true})}
+                <div id="workout-fields">
+                    ${renderInputField({label: "Sets", name: "sets", type: "number", required: true})}
+                    ${renderInputField({label: "Reps", name: "reps", type: "number", required: true})}
+                    ${renderInputField({label: "Weight (kg)", name: "weight", type: "number", step: "0.5", required: true})}
+                </div>
+                ${renderInputField({label: "Calories Burned", name: "caloriesBurned", type: "number", required: true})}
+                ${renderInputField({label: "Date", name: "date", type: "date", value: today, required: true})}
+                <button type="submit" class="w-full bg-blue-500 text-white p-3 rounded-lg font-semibold hover:bg-blue-600">Save Workout</button>
+            `;
+            return renderModalWrapper({title: "Add Workout", content, formId: "add-workout-form"});
+        }
+        
+        function renderAddMealModal() {
+            const today = new Date().toISOString().split('T')[0];
+            const content = `
+                ${renderInputField({label: "Food Name", name: "name", placeholder: "e.g., Chicken Breast", required: true})}
+                ${renderSelectField({label: "Meal Type", name: "mealType", value: "breakfast", options: [
+                    {value: 'breakfast', label: 'Breakfast'}, {value: 'lunch', label: 'Lunch'}, {value: 'dinner', label: 'Dinner'}, {value: 'snacks', label: 'Snacks'}
+                ]})}
+                <div class="grid grid-cols-2 gap-4">
+                    ${renderInputField({label: "Calories", name: "calories", type: "number", required: true})}
+                    ${renderInputField({label: "Protein (g)", name: "protein", type: "number"})}
+                    ${renderInputField({label: "Carbs (g)", name: "carbs", type: "number"})}
+                    ${renderInputField({label: "Fat (g)", name: "fat", type: "number"})}
+                </div>
+                ${renderInputField({label: "Date", name: "date", type: "date", value: today, required: true})}
+                <button type="submit" class="w-full bg-green-500 text-white p-3 rounded-lg font-semibold hover:bg-green-600">Save Meal</button>
+            `;
+            return renderModalWrapper({title: "Add Meal", content, formId: "add-meal-form"});
+        }
+        
+        function renderAddProgressModal() {
+            const today = new Date().toISOString().split('T')[0];
+            const content = `
+                ${renderInputField({label: "Weight (kg)", name: "weight", type: "number", step: "0.1", required: true})}
+                ${renderInputField({label: "Body Fat (%)", name: "bodyFat", type: "number", step: "0.1"})}
+                ${renderInputField({label: "Date", name: "date", type: "date", value: today, required: true})}
+                <button type="submit" class="w-full bg-purple-500 text-white p-3 rounded-lg font-semibold hover:bg-purple-600">Save Progress</button>
+            `;
+            return renderModalWrapper({title: "Log Progress", content, formId: "add-progress-form"});
+        }
+        
+        function renderAddWaterModal() {
+            const { todaysWater } = getTodaysData();
+            const content = `
+                <p class="text-lg">How many glasses of water have you had today?</p>
+                 <div class="flex items-center justify-center gap-4">
+                     <button type="button" id="water-minus" class="p-4 bg-gray-200 dark:bg-gray-700 rounded-full font-bold text-2xl w-16 h-16">-</button>
+                     <span id="water-amount" class="text-5xl font-bold w-20">${todaysWater}</span>
+                     <button type="button" id="water-plus" class="p-4 bg-gray-200 dark:bg-gray-700 rounded-full font-bold text-2xl w-16 h-16">+</button>
+                 </div>
+                 <button type="submit" class="w-full bg-blue-500 text-white p-3 rounded-lg font-semibold hover:bg-blue-600">Update Water</button>
+            `;
+            return renderModalWrapper({title: "Update Water Intake", content, formId: "add-water-form", formClass: "space-y-6 text-center"});
+        }
+
+        // --- Chart Creation ---
+        function createDashboardCharts() {
+            const ctx = document.getElementById('progressChart');
+            if (!ctx) return;
+
+            if (progressChartInstance) progressChartInstance.destroy();
+
+            progressChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: state.progress.map(p => p.date),
+                    datasets: [{
+                        label: 'Weight (kg)',
+                        data: state.progress.map(p => p.weight),
+                        borderColor: '#8884d8',
+                        backgroundColor: 'rgba(136, 132, 216, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: false, suggestedMin: Math.min(...state.progress.map(p=>p.weight)) - 2 } }
+                }
+            });
+        }
+        
+        function createProgressCharts() {
+            const ctx = document.getElementById('weightHistoryChart');
+            if (!ctx) return;
+            
+            if (weightHistoryChartInstance) weightHistoryChartInstance.destroy();
+
+            weightHistoryChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: state.progress.map(p => p.date),
+                    datasets: [
+                        {
+                            label: 'Weight (kg)',
+                            data: state.progress.map(p => p.weight),
+                            backgroundColor: '#8884d8',
+                        },
+                        {
+                            label: 'Body Fat (%)',
+                            data: state.progress.map(p => p.bodyFat),
+                            backgroundColor: '#ffc658',
+                        }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false } } }
+            });
+        }
+
+        // --- Event Listener Management ---
+        function attachEventListeners() {
+            // Theme toggle
+            document.getElementById('theme-toggle')?.addEventListener('click', () => {
+                state.theme = state.theme === 'dark' ? 'light' : 'dark';
+                document.documentElement.classList.toggle('dark');
+                renderApp();
+            });
+            
+            // Navigation
+            document.querySelectorAll('.nav-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const tab = e.currentTarget.dataset.tab;
+                    if (tab && state.activeTab !== tab) {
+                        state.activeTab = tab;
+                        renderApp();
+                    }
+                });
+            });
+
+            // Modal Triggers
+            document.querySelectorAll('.modal-trigger').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    renderModal(e.currentTarget.dataset.modal);
+                });
+            });
+            
+            // Delete Buttons
+            document.querySelectorAll('.delete-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const { collection, id } = e.currentTarget.dataset;
+                    handleDelete(collection, id);
+                });
+            });
+
+            // Settings Form
+            const settingsForm = document.getElementById('settings-form');
+            if (settingsForm) {
+                settingsForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const data = {};
+                    for (let [key, value] of formData.entries()) {
+                         // Convert numeric strings to numbers
+                        if (!isNaN(value) && value.trim() !== '') {
+                            data[key] = Number(value);
+                        } else {
+                            data[key] = value;
+                        }
+                    }
+                    handleSave('profile', data);
+                });
+            }
+        }
+
+        function attachModalEventListeners() {
+            // Close button
+            document.querySelectorAll('.close-modal-btn').forEach(btn => {
+                btn.addEventListener('click', closeModal);
+            });
+            
+            // Forms
+            const forms = {
+                'add-workout-form': (data) => handleSave('workouts', data),
+                'add-meal-form': (data) => handleSave('nutrition', data),
+                'add-progress-form': (data) => handleSave('progress', data),
+                'add-water-form': (data) => {
+                    const { waterData } = getTodaysData();
+                    handleSave('water', data, waterData?.id);
+                },
+            };
+            
+            for (const [formId, handler] of Object.entries(forms)) {
+                const form = document.getElementById(formId);
+                if (form) {
+                    form.addEventListener('submit', (e) => {
+                        e.preventDefault();
+                        const formData = new FormData(e.target);
+                        const data = {};
+                         for (let [key, value] of formData.entries()) {
+                            // Special handling for water amount from span
+                            if (formId === 'add-water-form' && key !== "amount") continue;
+
+                            const el = e.target.elements[key];
+                            if (el && el.type === 'number' && value !== '') {
+                                data[key] = parseFloat(value);
+                            } else {
+                                data[key] = value;
+                            }
+                         }
+                        // Handle water form specifically as its input is not a standard form element
+                        if (formId === 'add-water-form') {
+                            data.amount = parseInt(document.getElementById('water-amount').textContent);
+                            data.date = new Date().toISOString().split('T')[0];
+                        }
+
+                        handler(data);
+                    });
+                }
+            }
+            
+            // Workout type toggle
+            const workoutTypeSelect = document.querySelector('select[name="type"]');
+            if (workoutTypeSelect) {
+                workoutTypeSelect.addEventListener('change', (e) => {
+                    const fieldsContainer = document.getElementById('workout-fields');
+                    if (e.target.value === 'strength') {
+                        fieldsContainer.innerHTML = `
+                            ${renderInputField({label: "Sets", name: "sets", type: "number", required: true})}
+                            ${renderInputField({label: "Reps", name: "reps", type: "number", required: true})}
+                            ${renderInputField({label: "Weight (kg)", name: "weight", type: "number", step: "0.5", required: true})}
+                        `;
+                    } else {
+                         fieldsContainer.innerHTML = `
+                            ${renderInputField({label: "Duration (minutes)", name: "duration", type: "number", required: true})}
+                            ${renderInputField({label: "Distance (km)", name: "distance", type: "number", step: "0.1"})}
+                         `;
+                    }
+                });
+            }
+
+            // Water counter
+            const waterAmountEl = document.getElementById('water-amount');
+            if (waterAmountEl) {
+                document.getElementById('water-plus').addEventListener('click', () => {
+                    waterAmountEl.textContent = parseInt(waterAmountEl.textContent) + 1;
+                });
+                 document.getElementById('water-minus').addEventListener('click', () => {
+                    const current = parseInt(waterAmountEl.textContent);
+                    if (current > 0) waterAmountEl.textContent = current - 1;
+                });
+            }
+        }
+
+        // --- Start Application ---
+        main();
+    });
+    </script>
+
+</body>
+</html>
