@@ -138,23 +138,25 @@
             });
         }
 
+        // ** BUG FIX 1: Corrected Firestore path logic **
         function setupFirestoreListeners() {
             if (!state.isAuthReady || !state.userId || !db) return;
             
-            const basePath = `artifacts/${__app_id}/users/${state.userId}`;
+            // Get a reference to the user's main document
+            const userDocRef = db.collection('artifacts').doc(__app_id).collection('users').doc(state.userId);
             
-            // Profile listener
-            db.collection(basePath).doc('profile').onSnapshot(doc => {
+            // Profile listener (data stored on the main user document)
+            userDocRef.onSnapshot(doc => {
                 if (doc.exists) {
                     state.profile = { ...state.profile, ...doc.data() };
                 }
                 renderApp(); // Re-render on profile change
             }, err => console.error("Error fetching profile:", err));
             
-            // Collection listeners
+            // Listen to subcollections
             const collections = ['workouts', 'nutrition', 'progress', 'water'];
             collections.forEach(key => {
-                db.collection(basePath).doc(key).collection(key).onSnapshot(snapshot => {
+                userDocRef.collection(key).onSnapshot(snapshot => {
                     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     if (key === 'progress') {
                         state[key] = data.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -205,20 +207,24 @@
         }
 
         // --- Database Handlers ---
+        // ** BUG FIX 1: Corrected Firestore path logic **
         async function handleSave(collectionName, data, id = null) {
             if (!state.userId || !db) return console.error("Not authenticated or DB not initialized.");
             
             try {
-                const basePath = `artifacts/${__app_id}/users/${state.userId}`;
-                const collectionPath = db.collection(basePath).doc(collectionName).collection(collectionName);
-                if (id) {
-                    await collectionPath.doc(id).set(data, { merge: true });
-                } else if (collectionName === 'profile') {
-                    // Special handling for the single profile document
-                     await db.collection(basePath).doc('profile').set(data, { merge: true });
-                }
-                else {
-                    await collectionPath.add(data);
+                const userDocRef = db.collection('artifacts').doc(__app_id).collection('users').doc(state.userId);
+
+                // Special handling for the profile, which is saved on the main user doc
+                if (collectionName === 'profile') {
+                    await userDocRef.set(data, { merge: true });
+                } else {
+                    // Handle all other data in their respective subcollections
+                    const subCollectionRef = userDocRef.collection(collectionName);
+                    if (id) {
+                        await subCollectionRef.doc(id).set(data, { merge: true });
+                    } else {
+                        await subCollectionRef.add(data);
+                    }
                 }
                 closeModal();
             } catch (error) {
@@ -230,8 +236,8 @@
             if (!state.userId || !db) return;
             if (window.confirm('Are you sure you want to delete this item?')) {
                 try {
-                    const basePath = `artifacts/${__app_id}/users/${state.userId}`;
-                    await db.collection(basePath).doc(collectionName).collection(collectionName).doc(id).delete();
+                    const userDocRef = db.collection('artifacts').doc(__app_id).collection('users').doc(state.userId);
+                    await userDocRef.collection(collectionName).doc(id).delete();
                 } catch (error) {
                     console.error("Error deleting document: ", error);
                 }
@@ -239,11 +245,8 @@
         }
 
         // --- UI Rendering ---
-
         function renderApp() {
             loader.style.display = 'none';
-            const { tdee, macros } = getCalculatedMetrics();
-            const { nutritionTotals, caloriesBurnedToday, todaysWater, today } = getTodaysData();
             const tabs = ['dashboard', 'workouts', 'nutrition', 'progress', 'settings'];
 
             appRoot.innerHTML = `
@@ -287,12 +290,10 @@
             else if (state.activeTab === 'progress') mainContent.innerHTML = renderProgressView();
             else if (state.activeTab === 'settings') mainContent.innerHTML = renderSettingsView();
 
-            // Render icons and charts after HTML is in the DOM
             lucide.createIcons();
             if (state.activeTab === 'dashboard') createDashboardCharts();
             if (state.activeTab === 'progress') createProgressCharts();
             
-            // Re-attach event listeners
             attachEventListeners();
         }
 
@@ -629,9 +630,7 @@
         function createDashboardCharts() {
             const ctx = document.getElementById('progressChart');
             if (!ctx) return;
-
             if (progressChartInstance) progressChartInstance.destroy();
-
             progressChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -639,55 +638,52 @@
                     datasets: [{
                         label: 'Weight (kg)',
                         data: state.progress.map(p => p.weight),
-                        borderColor: '#8884d8',
-                        backgroundColor: 'rgba(136, 132, 216, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.4,
-                        fill: true
+                        borderColor: '#8884d8', backgroundColor: 'rgba(136, 132, 216, 0.1)',
+                        borderWidth: 2, tension: 0.4, fill: true
                     }]
                 },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    scales: { y: { beginAtZero: false, suggestedMin: Math.min(...state.progress.map(p=>p.weight)) - 2 } }
-                }
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false } } }
             });
         }
         
         function createProgressCharts() {
             const ctx = document.getElementById('weightHistoryChart');
             if (!ctx) return;
-            
             if (weightHistoryChartInstance) weightHistoryChartInstance.destroy();
-
             weightHistoryChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: state.progress.map(p => p.date),
                     datasets: [
-                        {
-                            label: 'Weight (kg)',
-                            data: state.progress.map(p => p.weight),
-                            backgroundColor: '#8884d8',
-                        },
-                        {
-                            label: 'Body Fat (%)',
-                            data: state.progress.map(p => p.bodyFat),
-                            backgroundColor: '#ffc658',
-                        }
+                        { label: 'Weight (kg)', data: state.progress.map(p => p.weight), backgroundColor: '#8884d8' },
+                        { label: 'Body Fat (%)', data: state.progress.map(p => p.bodyFat), backgroundColor: '#ffc658' }
                     ]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false } } }
             });
         }
+        
+        // ** BUG FIX 2: Efficient theme toggling without re-rendering the app **
+        function toggleTheme() {
+            const htmlEl = document.documentElement;
+            const themeToggleButton = document.getElementById('theme-toggle');
+
+            if (htmlEl.classList.contains('dark')) {
+                htmlEl.classList.remove('dark');
+                state.theme = 'light';
+                themeToggleButton.innerHTML = `<i data-lucide="moon"></i>`;
+            } else {
+                htmlEl.classList.add('dark');
+                state.theme = 'dark';
+                themeToggleButton.innerHTML = `<i data-lucide="sun"></i>`;
+            }
+            lucide.createIcons(); // Redraw the icon
+        }
 
         // --- Event Listener Management ---
         function attachEventListeners() {
             // Theme toggle
-            document.getElementById('theme-toggle')?.addEventListener('click', () => {
-                state.theme = state.theme === 'dark' ? 'light' : 'dark';
-                document.documentElement.classList.toggle('dark');
-                renderApp();
-            });
+            document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
             
             // Navigation
             document.querySelectorAll('.nav-button').forEach(button => {
@@ -702,9 +698,7 @@
 
             // Modal Triggers
             document.querySelectorAll('.modal-trigger').forEach(button => {
-                button.addEventListener('click', (e) => {
-                    renderModal(e.currentTarget.dataset.modal);
-                });
+                button.addEventListener('click', (e) => { renderModal(e.currentTarget.dataset.modal); });
             });
             
             // Delete Buttons
@@ -723,12 +717,8 @@
                     const formData = new FormData(e.target);
                     const data = {};
                     for (let [key, value] of formData.entries()) {
-                         // Convert numeric strings to numbers
-                        if (!isNaN(value) && value.trim() !== '') {
-                            data[key] = Number(value);
-                        } else {
-                            data[key] = value;
-                        }
+                        if (!isNaN(value) && value.trim() !== '') { data[key] = Number(value); } 
+                        else { data[key] = value; }
                     }
                     handleSave('profile', data);
                 });
@@ -736,12 +726,10 @@
         }
 
         function attachModalEventListeners() {
-            // Close button
             document.querySelectorAll('.close-modal-btn').forEach(btn => {
                 btn.addEventListener('click', closeModal);
             });
             
-            // Forms
             const forms = {
                 'add-workout-form': (data) => handleSave('workouts', data),
                 'add-meal-form': (data) => handleSave('nutrition', data),
@@ -760,28 +748,21 @@
                         const formData = new FormData(e.target);
                         const data = {};
                          for (let [key, value] of formData.entries()) {
-                            // Special handling for water amount from span
                             if (formId === 'add-water-form' && key !== "amount") continue;
-
                             const el = e.target.elements[key];
                             if (el && el.type === 'number' && value !== '') {
                                 data[key] = parseFloat(value);
-                            } else {
-                                data[key] = value;
-                            }
+                            } else { data[key] = value; }
                          }
-                        // Handle water form specifically as its input is not a standard form element
                         if (formId === 'add-water-form') {
                             data.amount = parseInt(document.getElementById('water-amount').textContent);
                             data.date = new Date().toISOString().split('T')[0];
                         }
-
                         handler(data);
                     });
                 }
             }
             
-            // Workout type toggle
             const workoutTypeSelect = document.querySelector('select[name="type"]');
             if (workoutTypeSelect) {
                 workoutTypeSelect.addEventListener('change', (e) => {
@@ -801,7 +782,6 @@
                 });
             }
 
-            // Water counter
             const waterAmountEl = document.getElementById('water-amount');
             if (waterAmountEl) {
                 document.getElementById('water-plus').addEventListener('click', () => {
