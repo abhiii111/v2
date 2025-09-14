@@ -12,6 +12,11 @@
             background-color: #f3f4f6;
             color: #1f2937;
         }
+        .progress-ring__circle {
+            transition: stroke-dasharray 0.35s;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
     </style>
 </head>
 <body class="p-4 sm:p-8 md:p-12">
@@ -45,68 +50,146 @@
             <!-- Calorie Card -->
             <div class="bg-blue-50 p-6 rounded-2xl shadow-md flex flex-col items-center">
                 <h3 class="text-lg font-bold text-blue-800">Calories</h3>
-                <p id="caloriesDisplay" class="text-3xl font-extrabold text-blue-600 mt-2">0</p>
-            </div>
-            <!-- Water Card -->
-            <div class="bg-sky-50 p-6 rounded-2xl shadow-md flex flex-col items-center">
-                <h3 class="text-lg font-bold text-sky-800">Water (ml)</h3>
-                <p id="waterDisplay" class="text-3xl font-extrabold text-sky-600 mt-2">0</p>
-            </div>
-            <!-- Macronutrients Card -->
-            <div class="bg-emerald-50 p-6 rounded-2xl shadow-md col-span-1 sm:col-span-2 lg:col-span-1">
-                <h3 class="text-lg font-bold text-emerald-800">Macros</h3>
-                <div class="mt-2 text-center">
-                    <p id="macrosDisplay" class="text-lg font-semibold text-emerald-600">P: 0g | C: 0g | F: 0g</p>
+                <p id="caloriesDisplay" class="text-3xl font-extrabold text-blue-600 mt-2">0 / 0</p>
+                <div class="w-full h-2 bg-blue-200 rounded-full mt-2 overflow-hidden">
+                    <div id="calorieProgressBar" class="h-full bg-blue-600 transition-all duration-300" style="width: 0%;"></div>
                 </div>
             </div>
-            <!-- Micronutrients Card -->
-            <div class="bg-purple-50 p-6 rounded-2xl shadow-md col-span-1 sm:col-span-2 lg:col-span-1">
-                <h3 class="text-lg font-bold text-purple-800">Micros</h3>
-                <div class="mt-2 text-center">
-                    <p id="microsDisplay" class="text-sm text-purple-600">No data entered</p>
+            <!-- Water Card -->
+            <div class="bg-sky-50 p-6 rounded-2xl shadow-md flex flex-col items-center relative">
+                <h3 class="text-lg font-bold text-sky-800">Water (ml)</h3>
+                <svg id="waterProgressRing" class="mt-4 w-24 h-24" viewBox="0 0 36 36">
+                    <circle class="progress-ring__background" stroke="#e6f2ff" stroke-width="3" fill="transparent" r="16" cx="18" cy="18"></circle>
+                    <circle class="progress-ring__circle" stroke="#0ea5e9" stroke-width="3" stroke-dasharray="100, 100" fill="transparent" r="16" cx="18" cy="18"></circle>
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <p id="waterDisplay" class="text-2xl font-extrabold text-sky-600">0 / 0</p>
+                </div>
+            </div>
+            <!-- Macronutrients Card -->
+            <div class="bg-emerald-50 p-6 rounded-2xl shadow-md flex flex-col items-center">
+                <h3 class="text-lg font-bold text-emerald-800">Macros</h3>
+                <canvas id="macrosChart" width="100" height="100" class="mt-2"></canvas>
+                <div id="macrosLegend" class="mt-2 text-sm text-emerald-600 text-center"></div>
+            </div>
+            <!-- Workouts Card -->
+            <div class="bg-purple-50 p-6 rounded-2xl shadow-md flex flex-col items-center">
+                <h3 class="text-lg font-bold text-purple-800">Workouts</h3>
+                <p id="workoutsDisplay" class="text-3xl font-extrabold text-purple-600 mt-2">0</p>
+                <p class="text-xs text-gray-500 mt-2">Total logged</p>
+            </div>
+        </div>
+
+        <!-- Goal Setting and Logging Sections -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Goal Setting Form -->
+            <div class="bg-gray-50 p-6 rounded-2xl shadow-inner space-y-4 lg:col-span-1">
+                <h2 class="text-2xl font-bold text-gray-700 text-center">Set Daily Goals</h2>
+                <form id="goalForm" class="space-y-4">
+                    <div class="space-y-2">
+                        <label for="calorieGoalInput" class="block font-medium text-gray-700">Calorie Goal</label>
+                        <input type="number" id="calorieGoalInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" placeholder="e.g., 2000">
+                    </div>
+                    <div class="space-y-2">
+                        <label for="waterGoalInput" class="block font-medium text-gray-700">Water Goal (ml)</label>
+                        <input type="number" id="waterGoalInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors" placeholder="e.g., 2500">
+                    </div>
+                    <button type="submit" class="w-full py-3 px-6 bg-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:bg-indigo-700 transition-colors duration-300">
+                        Update Goals
+                    </button>
+                </form>
+            </div>
+
+            <!-- Meal Logging Form -->
+            <div class="bg-gray-50 p-6 rounded-2xl shadow-inner space-y-4 lg:col-span-1">
+                <h2 class="text-2xl font-bold text-gray-700 text-center">Log a Meal</h2>
+                <form id="mealForm" class="space-y-4">
+                    <div class="space-y-2">
+                        <label for="mealNameInput" class="block font-medium text-gray-700">Meal Name</label>
+                        <input type="text" id="mealNameInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors" placeholder="e.g., Lunch">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label for="mealCalorieInput" class="block font-medium text-gray-700">Calories</label>
+                            <input type="number" id="mealCalorieInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" placeholder="e.g., 500">
+                        </div>
+                        <div class="space-y-2">
+                            <label for="mealWaterInput" class="block font-medium text-gray-700">Water (ml)</label>
+                            <input type="number" id="mealWaterInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors" placeholder="e.g., 250">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="space-y-2">
+                            <label for="mealProteinInput" class="block font-medium text-gray-700">Protein (g)</label>
+                            <input type="number" id="mealProteinInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="e.g., 20">
+                        </div>
+                        <div class="space-y-2">
+                            <label for="mealCarbsInput" class="block font-medium text-gray-700">Carbs (g)</label>
+                            <input type="number" id="mealCarbsInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="e.g., 30">
+                        </div>
+                        <div class="space-y-2">
+                            <label for="mealFatsInput" class="block font-medium text-gray-700">Fats (g)</label>
+                            <input type="number" id="mealFatsInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="e.g., 10">
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full py-3 px-6 bg-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:bg-indigo-700 transition-colors duration-300">
+                        Log Meal
+                    </button>
+                </form>
+            </div>
+
+            <!-- Workout Logging Form -->
+            <div class="bg-gray-50 p-6 rounded-2xl shadow-inner space-y-4 lg:col-span-1">
+                <h2 class="text-2xl font-bold text-gray-700 text-center">Log a Workout</h2>
+                <form id="workoutForm" class="space-y-4">
+                    <div class="space-y-2">
+                        <label for="exerciseNameInput" class="block font-medium text-gray-700">Exercise Name</label>
+                        <input type="text" id="exerciseNameInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" placeholder="e.g., Squats">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label for="setsInput" class="block font-medium text-gray-700">Sets</label>
+                            <input type="number" id="setsInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" placeholder="e.g., 3">
+                        </div>
+                        <div class="space-y-2">
+                            <label for="repsInput" class="block font-medium text-gray-700">Reps</label>
+                            <input type="number" id="repsInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" placeholder="e.g., 10">
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full py-3 px-6 bg-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:bg-indigo-700 transition-colors duration-300">
+                        Log Workout
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Today's Logged Meals and Workouts -->
+        <div class="bg-gray-50 p-6 rounded-2xl shadow-inner space-y-6">
+            <h2 class="text-2xl font-bold text-gray-700 text-center">Today's Log</h2>
+            
+            <!-- Meals -->
+            <div>
+                <h3 class="text-xl font-bold text-gray-700 mb-2">Meals</h3>
+                <div id="todayLogList" class="space-y-3">
+                    <!-- Logged meals will be dynamically added here -->
+                </div>
+                <div id="noMealsMessage" class="text-center text-gray-500 hidden mt-4">
+                    No meals logged for today.
+                </div>
+            </div>
+
+            <!-- Workouts -->
+            <div>
+                <h3 class="text-xl font-bold text-gray-700 mb-2 mt-4">Workouts</h3>
+                <div id="todayWorkoutsList" class="space-y-3">
+                    <!-- Logged workouts will be dynamically added here -->
+                </div>
+                <div id="noWorkoutsMessage" class="text-center text-gray-500 hidden mt-4">
+                    No workouts logged for today.
                 </div>
             </div>
         </div>
 
-        <!-- Input Form Section -->
-        <div class="bg-gray-50 p-6 rounded-2xl shadow-inner space-y-6">
-            <h2 class="text-2xl font-bold text-gray-700 text-center">Log Your Intake</h2>
-            <form id="trackerForm" class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <!-- Water Input -->
-                <div class="space-y-2">
-                    <label for="waterInput" class="block font-medium text-gray-700">Water (ml)</label>
-                    <input type="number" id="waterInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors" placeholder="e.g., 250">
-                </div>
-                <!-- Calorie Input -->
-                <div class="space-y-2">
-                    <label for="calorieInput" class="block font-medium text-gray-700">Calories</label>
-                    <input type="number" id="calorieInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" placeholder="e.g., 500">
-                </div>
-                <!-- Macros Input -->
-                <div class="sm:col-span-2 grid grid-cols-3 gap-4">
-                    <div class="space-y-2">
-                        <label for="proteinInput" class="block font-medium text-gray-700">Protein (g)</label>
-                        <input type="number" id="proteinInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="e.g., 20">
-                    </div>
-                    <div class="space-y-2">
-                        <label for="carbsInput" class="block font-medium text-gray-700">Carbs (g)</label>
-                        <input type="number" id="carbsInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="e.g., 30">
-                    </div>
-                    <div class="space-y-2">
-                        <label for="fatsInput" class="block font-medium text-gray-700">Fats (g)</label>
-                        <input type="number" id="fatsInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" placeholder="e.g., 10">
-                    </div>
-                </div>
-                <!-- Micronutrients Input -->
-                <div class="sm:col-span-2 space-y-2">
-                    <label for="microsInput" class="block font-medium text-gray-700">Micronutrients (e.g. vitamins, minerals)</label>
-                    <input type="text" id="microsInput" class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors" placeholder="e.g., Vitamin C, Iron">
-                </div>
-                <button type="submit" class="sm:col-span-2 w-full mt-4 py-3 px-6 bg-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:bg-indigo-700 transition-colors duration-300">
-                    Log Data
-                </button>
-            </form>
-        </div>
 
         <!-- History/Journey Section -->
         <div class="bg-gray-50 p-6 rounded-2xl shadow-inner space-y-4">
@@ -134,7 +217,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, where, getDocs, orderBy, limit, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global variables provided by the environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -143,45 +226,103 @@
 
         let db, auth, userId;
         let currentDate = new Date();
-        const HISTORY_LIMIT = 7; // Display the last 7 days
+        const historyLimit = 7;
 
         // UI elements
         const userIdDisplay = document.getElementById('userIdDisplay');
         const currentDateDisplay = document.getElementById('currentDateDisplay');
         const prevDayBtn = document.getElementById('prevDayBtn');
         const nextDayBtn = document.getElementById('nextDayBtn');
+
         const caloriesDisplay = document.getElementById('caloriesDisplay');
         const waterDisplay = document.getElementById('waterDisplay');
-        const macrosDisplay = document.getElementById('macrosDisplay');
-        const microsDisplay = document.getElementById('microsDisplay');
-        const trackerForm = document.getElementById('trackerForm');
-        const waterInput = document.getElementById('waterInput');
-        const calorieInput = document.getElementById('calorieInput');
-        const proteinInput = document.getElementById('proteinInput');
-        const carbsInput = document.getElementById('carbsInput');
-        const fatsInput = document.getElementById('fatsInput');
-        const microsInput = document.getElementById('microsInput');
+        const macrosChart = document.getElementById('macrosChart');
+        const macrosLegend = document.getElementById('macrosLegend');
+        const workoutsDisplay = document.getElementById('workoutsDisplay');
+        const calorieProgressBar = document.getElementById('calorieProgressBar');
+        const waterProgressRing = document.getElementById('waterProgressRing').querySelector('.progress-ring__circle');
+        const waterProgressRadius = waterProgressRing.r.baseVal.value;
+        const waterProgressCircumference = waterProgressRadius * 2 * Math.PI;
+        waterProgressRing.style.strokeDasharray = `${waterProgressCircumference} ${waterProgressCircumference}`;
+        waterProgressRing.style.strokeDashoffset = waterProgressCircumference;
+
+        const goalForm = document.getElementById('goalForm');
+        const calorieGoalInput = document.getElementById('calorieGoalInput');
+        const waterGoalInput = document.getElementById('waterGoalInput');
+
+        const mealForm = document.getElementById('mealForm');
+        const mealNameInput = document.getElementById('mealNameInput');
+        const mealCalorieInput = document.getElementById('mealCalorieInput');
+        const mealWaterInput = document.getElementById('mealWaterInput');
+        const mealProteinInput = document.getElementById('mealProteinInput');
+        const mealCarbsInput = document.getElementById('mealCarbsInput');
+        const mealFatsInput = document.getElementById('mealFatsInput');
+
+        const workoutForm = document.getElementById('workoutForm');
+        const exerciseNameInput = document.getElementById('exerciseNameInput');
+        const setsInput = document.getElementById('setsInput');
+        const repsInput = document.getElementById('repsInput');
+        
+        const todayLogList = document.getElementById('todayLogList');
+        const noMealsMessage = document.getElementById('noMealsMessage');
+        const todayWorkoutsList = document.getElementById('todayWorkoutsList');
+        const noWorkoutsMessage = document.getElementById('noWorkoutsMessage');
         const historyList = document.getElementById('historyList');
         const noHistoryMessage = document.getElementById('noHistoryMessage');
+
         const messageModal = document.getElementById('messageModal');
         const modalMessage = document.getElementById('modalMessage');
         const closeModalBtn = document.getElementById('closeModalBtn');
 
+        let dailyDataSubscription = null;
+        let goalsDataSubscription = null;
+        let historyDataSubscription = null;
+
         // Helper functions
-        const formatDate = (date) => {
-            return date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-        };
-
-        const showMessage = (message) => {
-            modalMessage.textContent = message;
-            messageModal.classList.remove('hidden');
-        };
-
-        const hideMessage = () => {
-            messageModal.classList.add('hidden');
-        };
-
+        const formatDate = (date) => date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const showMessage = (message) => { modalMessage.textContent = message; messageModal.classList.remove('hidden'); };
+        const hideMessage = () => { messageModal.classList.add('hidden'); };
         closeModalBtn.addEventListener('click', hideMessage);
+
+        const updateProgressRing = (value, goal) => {
+            const percentage = goal > 0 ? (value / goal) * 100 : 0;
+            const cappedPercentage = Math.min(percentage, 100);
+            const offset = waterProgressCircumference - (cappedPercentage / 100) * waterProgressCircumference;
+            waterProgressRing.style.strokeDashoffset = offset;
+        };
+
+        const drawMacrosChart = (protein, carbs, fats) => {
+            const ctx = macrosChart.getContext('2d');
+            ctx.clearRect(0, 0, macrosChart.width, macrosChart.height);
+            const total = protein + carbs + fats;
+            if (total === 0) {
+                macrosLegend.innerHTML = '<span class="text-sm">No data</span>';
+                return;
+            }
+            const data = [
+                { name: 'Protein', value: protein, color: '#059669' }, // emerald-600
+                { name: 'Carbs', value: carbs, color: '#10b981' }, // emerald-500
+                { name: 'Fats', value: fats, color: '#34d399' }  // emerald-400
+            ];
+            const legendHTML = data.map(d => `<div class="flex items-center space-x-1"><span class="w-2 h-2 rounded-full" style="background-color: ${d.color};"></span><span>${d.name}: ${d.value}g</span></div>`).join('');
+            macrosLegend.innerHTML = `<div class="flex justify-center space-x-2">${legendHTML}</div>`;
+
+            let startAngle = 0;
+            const centerX = macrosChart.width / 2;
+            const centerY = macrosChart.height / 2;
+            const radius = Math.min(centerX, centerY);
+
+            for (let i = 0; i < data.length; i++) {
+                const sliceAngle = 2 * Math.PI * (data[i].value / total);
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
+                ctx.closePath();
+                ctx.fillStyle = data[i].color;
+                ctx.fill();
+                startAngle += sliceAngle;
+            }
+        };
 
         // Firebase Initialization and Authentication
         const initFirebase = async () => {
@@ -224,31 +365,105 @@
             return doc(db, collectionPath, dateStr);
         };
 
-        const saveDailyData = async (date, data) => {
+        const getGoalsDocRef = () => {
+            const collectionPath = `/artifacts/${appId}/users/${userId}/goals`;
+            return doc(db, collectionPath, 'daily');
+        };
+
+        const saveMealData = async (date, mealData) => {
             if (!userId) {
                 console.error("User ID is not available. Cannot save data.");
                 return;
             }
             const docRef = getDailyDocRef(date);
             try {
-                await setDoc(docRef, { ...data, timestamp: serverTimestamp() }, { merge: true });
-                console.log("Data successfully saved for", date.toISOString().split('T')[0]);
-                showMessage("Data logged successfully!");
+                const docSnap = await getDoc(docRef);
+                const existingData = docSnap.exists() ? docSnap.data() : { meals: [] };
+                
+                const newMeals = [...(existingData.meals || []), mealData];
+                const newTotalCalories = newMeals.reduce((sum, meal) => sum + (meal.calories || 0), 0);
+                const newTotalWater = newMeals.reduce((sum, meal) => sum + (meal.water || 0), 0);
+                const newTotalProtein = newMeals.reduce((sum, meal) => sum + (meal.macros?.protein || 0), 0);
+                const newTotalCarbs = newMeals.reduce((sum, meal) => sum + (meal.macros?.carbs || 0), 0);
+                const newTotalFats = newMeals.reduce((sum, meal) => sum + (meal.macros?.fats || 0), 0);
+                const newMicros = [...new Set(newMeals.flatMap(meal => meal.micros ? meal.micros.split(',').map(s => s.trim()) : []))].filter(Boolean).join(', ');
+
+                await setDoc(docRef, {
+                    meals: newMeals,
+                    calories: newTotalCalories,
+                    water: newTotalWater,
+                    macros: {
+                        protein: newTotalProtein,
+                        carbs: newTotalCarbs,
+                        fats: newTotalFats
+                    },
+                    micros: newMicros,
+                    timestamp: serverTimestamp()
+                }, { merge: true });
+
+                console.log("Meal successfully logged for", date.toISOString().split('T')[0]);
+                showMessage("Meal logged successfully!");
             } catch (error) {
                 console.error("Error saving data:", error);
                 showMessage("Failed to save data. Please try again.");
             }
         };
 
+        const saveWorkoutData = async (date, workoutData) => {
+            if (!userId) {
+                console.error("User ID is not available. Cannot save data.");
+                return;
+            }
+            const docRef = getDailyDocRef(date);
+            try {
+                const docSnap = await getDoc(docRef);
+                const existingData = docSnap.exists() ? docSnap.data() : { workouts: [] };
+                
+                const newWorkouts = [...(existingData.workouts || []), workoutData];
+
+                await setDoc(docRef, {
+                    workouts: newWorkouts,
+                    timestamp: serverTimestamp()
+                }, { merge: true });
+
+                console.log("Workout successfully logged for", date.toISOString().split('T')[0]);
+                showMessage("Workout logged successfully!");
+            } catch (error) {
+                console.error("Error saving workout:", error);
+                showMessage("Failed to save workout. Please try again.");
+            }
+        };
+
+        const saveGoalData = async (data) => {
+            if (!userId) {
+                console.error("User ID is not available. Cannot save goals.");
+                return;
+            }
+            const docRef = getGoalsDocRef();
+            try {
+                await setDoc(docRef, data, { merge: true });
+                console.log("Goals successfully saved");
+                showMessage("Goals updated successfully!");
+            } catch (error) {
+                console.error("Error saving goals:", error);
+                showMessage("Failed to save goals. Please try again.");
+            }
+        };
+
         const loadDailyData = (date) => {
             if (!userId) return;
+            // Unsubscribe from previous listener
+            if (dailyDataSubscription) dailyDataSubscription();
+
             const docRef = getDailyDocRef(date);
-            onSnapshot(docRef, (docSnap) => {
+            dailyDataSubscription = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     updateUI(data);
+                    renderTodaysLog(data.meals || [], data.workouts || []);
                 } else {
-                    updateUI({ water: 0, calories: 0, macros: { protein: 0, carbs: 0, fats: 0 }, micros: '' });
+                    updateUI({ meals: [], workouts: [], calories: 0, water: 0, macros: { protein: 0, carbs: 0, fats: 0 } });
+                    renderTodaysLog([], []);
                 }
             }, (error) => {
                 console.error("Error getting document:", error);
@@ -256,12 +471,24 @@
             });
         };
 
+        const loadGoalsData = () => {
+            if (!userId) return;
+            if (goalsDataSubscription) goalsDataSubscription();
+            const docRef = getGoalsDocRef();
+            goalsDataSubscription = onSnapshot(docRef, (docSnap) => {
+                const goals = docSnap.exists() ? docSnap.data() : {};
+                updateGoalsUI(goals);
+            }, (error) => {
+                console.error("Error loading goals:", error);
+            });
+        };
+
         const loadHistory = async () => {
             if (!userId) return;
+            if (historyDataSubscription) historyDataSubscription();
             const collectionPath = `/artifacts/${appId}/users/${userId}/daily_records`;
             const q = query(collection(db, collectionPath), orderBy("timestamp", "desc"));
-
-            onSnapshot(q, (querySnapshot) => {
+            historyDataSubscription = onSnapshot(q, (querySnapshot) => {
                 historyList.innerHTML = '';
                 if (querySnapshot.empty) {
                     noHistoryMessage.classList.remove('hidden');
@@ -274,9 +501,12 @@
                         historyItem.className = 'p-4 bg-white rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow';
                         historyItem.innerHTML = `
                             <div class="text-sm text-gray-500">${formatDate(new Date(dateStr))}</div>
-                            <div class="mt-2 text-md font-semibold text-gray-800">Calories: <span class="text-blue-600">${data.calories || 0}</span> | Water: <span class="text-sky-600">${data.water || 0}ml</span></div>
+                            <div class="mt-2 text-md font-semibold text-gray-800">
+                                <span class="text-blue-600">Calories: ${data.calories || 0}</span> | 
+                                <span class="text-sky-600">Water: ${data.water || 0}ml</span> |
+                                <span class="text-purple-600">Workouts: ${(data.workouts || []).length}</span>
+                            </div>
                             <div class="text-sm text-gray-600 mt-1">P: ${data.macros?.protein || 0}g | C: ${data.macros?.carbs || 0}g | F: ${data.macros?.fats || 0}g</div>
-                            ${data.micros ? `<div class="text-xs text-gray-400 mt-1">${data.micros}</div>` : ''}
                         `;
                         historyList.appendChild(historyItem);
                         historyItem.addEventListener('click', () => {
@@ -293,10 +523,63 @@
 
         // UI Update Functions
         const updateUI = (data) => {
-            caloriesDisplay.textContent = data.calories || 0;
-            waterDisplay.textContent = data.water || 0;
-            macrosDisplay.textContent = `P: ${data.macros?.protein || 0}g | C: ${data.macros?.carbs || 0}g | F: ${data.macros?.fats || 0}g`;
-            microsDisplay.textContent = data.micros || 'No data entered';
+            const { calories = 0, water = 0, macros = {}, workouts = [] } = data;
+            const calorieGoal = parseInt(calorieGoalInput.value) || 0;
+            const waterGoal = parseInt(waterGoalInput.value) || 0;
+
+            caloriesDisplay.textContent = `${calories} / ${calorieGoal}`;
+            waterDisplay.textContent = `${water} / ${waterGoal}ml`;
+            workoutsDisplay.textContent = workouts.length;
+            
+            const calorieProgress = calorieGoal > 0 ? (calories / calorieGoal) * 100 : 0;
+            calorieProgressBar.style.width = `${Math.min(calorieProgress, 100)}%`;
+            updateProgressRing(water, waterGoal);
+            
+            drawMacrosChart(macros.protein || 0, macros.carbs || 0, macros.fats || 0);
+        };
+
+        const updateGoalsUI = (goals) => {
+            calorieGoalInput.value = goals.calorieGoal || '';
+            waterGoalInput.value = goals.waterGoal || '';
+            // Re-render UI with new goals
+            loadDailyData(currentDate);
+        };
+
+        const renderTodaysLog = (meals, workouts) => {
+            // Render meals
+            todayLogList.innerHTML = '';
+            if (meals.length === 0) {
+                noMealsMessage.classList.remove('hidden');
+            } else {
+                noMealsMessage.classList.add('hidden');
+                meals.forEach((meal) => {
+                    const mealItem = document.createElement('div');
+                    mealItem.className = 'p-4 bg-white rounded-xl shadow-md';
+                    mealItem.innerHTML = `
+                        <div class="text-md font-semibold text-gray-800">${meal.name || 'Unnamed Meal'}</div>
+                        <div class="text-sm text-gray-600 mt-1">Calories: ${meal.calories || 0} | Water: ${meal.water || 0}ml</div>
+                        <div class="text-xs text-gray-500 mt-1">P: ${meal.macros?.protein || 0}g | C: ${meal.macros?.carbs || 0}g | F: ${meal.macros?.fats || 0}g</div>
+                    `;
+                    todayLogList.appendChild(mealItem);
+                });
+            }
+
+            // Render workouts
+            todayWorkoutsList.innerHTML = '';
+            if (workouts.length === 0) {
+                noWorkoutsMessage.classList.remove('hidden');
+            } else {
+                noWorkoutsMessage.classList.add('hidden');
+                workouts.forEach((workout) => {
+                    const workoutItem = document.createElement('div');
+                    workoutItem.className = 'p-4 bg-white rounded-xl shadow-md';
+                    workoutItem.innerHTML = `
+                        <div class="text-md font-semibold text-gray-800">${workout.name || 'Unnamed Exercise'}</div>
+                        <div class="text-sm text-gray-600 mt-1">Sets: ${workout.sets || 0} | Reps: ${workout.reps || 0}</div>
+                    `;
+                    todayWorkoutsList.appendChild(workoutItem);
+                });
+            }
         };
 
         const updateDateDisplay = () => {
@@ -306,6 +589,7 @@
         // Event Listeners
         const attachListeners = () => {
             updateDateDisplay();
+            loadGoalsData();
             loadDailyData(currentDate);
             loadHistory();
 
@@ -316,28 +600,48 @@
             });
 
             nextDayBtn.addEventListener('click', () => {
-                currentDate.setDate(currentDate.getDate() + 1);
-                updateDateDisplay();
-                loadDailyData(currentDate);
+                const today = new Date();
+                if (currentDate.toISOString().split('T')[0] < today.toISOString().split('T')[0]) {
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    updateDateDisplay();
+                    loadDailyData(currentDate);
+                } else {
+                    showMessage("You cannot track data for a future date.");
+                }
             });
 
-            trackerForm.addEventListener('submit', (e) => {
+            goalForm.addEventListener('submit', (e) => {
                 e.preventDefault();
-                const water = parseInt(waterInput.value) || 0;
-                const calories = parseInt(calorieInput.value) || 0;
-                const protein = parseInt(proteinInput.value) || 0;
-                const carbs = parseInt(carbsInput.value) || 0;
-                const fats = parseInt(fatsInput.value) || 0;
-                const micros = microsInput.value || '';
+                const calorieGoal = parseInt(calorieGoalInput.value) || 0;
+                const waterGoal = parseInt(waterGoalInput.value) || 0;
+                saveGoalData({ calorieGoal, waterGoal });
+            });
 
-                const data = {
-                    water: water,
-                    calories: calories,
-                    macros: { protein, carbs, fats },
-                    micros: micros
+            mealForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const mealData = {
+                    name: mealNameInput.value || 'Meal',
+                    calories: parseInt(mealCalorieInput.value) || 0,
+                    water: parseInt(mealWaterInput.value) || 0,
+                    macros: {
+                        protein: parseInt(mealProteinInput.value) || 0,
+                        carbs: parseInt(mealCarbsInput.value) || 0,
+                        fats: parseInt(mealFatsInput.value) || 0
+                    }
                 };
-                saveDailyData(currentDate, data);
-                trackerForm.reset();
+                saveMealData(currentDate, mealData);
+                mealForm.reset();
+            });
+
+            workoutForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const workoutData = {
+                    name: exerciseNameInput.value || 'Unnamed Exercise',
+                    sets: parseInt(setsInput.value) || 0,
+                    reps: parseInt(repsInput.value) || 0
+                };
+                saveWorkoutData(currentDate, workoutData);
+                workoutForm.reset();
             });
         };
 
