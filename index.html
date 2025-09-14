@@ -46,7 +46,7 @@
         </div>
 
         <!-- Dashboard Section -->
-        <div id="dashboard" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div id="dashboard" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <!-- Calorie Card -->
             <div class="bg-blue-50 p-6 rounded-2xl shadow-md flex flex-col items-center">
                 <h3 class="text-lg font-bold text-blue-800">Calories</h3>
@@ -71,12 +71,6 @@
                 <h3 class="text-lg font-bold text-emerald-800">Macros</h3>
                 <canvas id="macrosChart" width="100" height="100" class="mt-2"></canvas>
                 <div id="macrosLegend" class="mt-2 text-sm text-emerald-600 text-center"></div>
-            </div>
-            <!-- Workouts Card -->
-            <div class="bg-purple-50 p-6 rounded-2xl shadow-md flex flex-col items-center">
-                <h3 class="text-lg font-bold text-purple-800">Workouts</h3>
-                <p id="workoutsDisplay" class="text-3xl font-extrabold text-purple-600 mt-2">0</p>
-                <p class="text-xs text-gray-500 mt-2">Total logged</p>
             </div>
         </div>
 
@@ -217,7 +211,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global variables provided by the environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -238,7 +232,6 @@
         const waterDisplay = document.getElementById('waterDisplay');
         const macrosChart = document.getElementById('macrosChart');
         const macrosLegend = document.getElementById('macrosLegend');
-        const workoutsDisplay = document.getElementById('workoutsDisplay');
         const calorieProgressBar = document.getElementById('calorieProgressBar');
         const waterProgressRing = document.getElementById('waterProgressRing').querySelector('.progress-ring__circle');
         const waterProgressRadius = waterProgressRing.r.baseVal.value;
@@ -330,7 +323,6 @@
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
-                setLogLevel('debug'); // Enable Firestore logs
 
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
@@ -386,7 +378,6 @@
                 const newTotalProtein = newMeals.reduce((sum, meal) => sum + (meal.macros?.protein || 0), 0);
                 const newTotalCarbs = newMeals.reduce((sum, meal) => sum + (meal.macros?.carbs || 0), 0);
                 const newTotalFats = newMeals.reduce((sum, meal) => sum + (meal.macros?.fats || 0), 0);
-                const newMicros = [...new Set(newMeals.flatMap(meal => meal.micros ? meal.micros.split(',').map(s => s.trim()) : []))].filter(Boolean).join(', ');
 
                 await setDoc(docRef, {
                     meals: newMeals,
@@ -397,7 +388,6 @@
                         carbs: newTotalCarbs,
                         fats: newTotalFats
                     },
-                    micros: newMicros,
                     timestamp: serverTimestamp()
                 }, { merge: true });
 
@@ -529,7 +519,6 @@
 
             caloriesDisplay.textContent = `${calories} / ${calorieGoal}`;
             waterDisplay.textContent = `${water} / ${waterGoal}ml`;
-            workoutsDisplay.textContent = workouts.length;
             
             const calorieProgress = calorieGoal > 0 ? (calories / calorieGoal) * 100 : 0;
             calorieProgressBar.style.width = `${Math.min(calorieProgress, 100)}%`;
